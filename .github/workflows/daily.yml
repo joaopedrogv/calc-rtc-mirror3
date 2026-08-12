@@ -1,0 +1,186 @@
+name: Download and Update Código Fonte da Calculadora da Reforma Tributária
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # Runs every day at midnight UTC
+  workflow_dispatch: # Allows manual triggering of the workflow
+
+jobs:
+  main:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # 'write' access to repository contents
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-tags: true
+
+      - name: Get download URL from API
+        id: get_url
+        run: |
+          DOWNLOAD_URL=$(curl -s "https://calculadora-rtc-download.joaopedro-c3b.workers.dev" | jq -r '.downloadUrl')
+          # DOWNLOAD_URL=$(curl -s "https://piloto-cbs.tributos.gov.br/servico/calculadora-consumo/api/calculadora/download/url?platform=default" | jq -r '.downloadUrl')
+          if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" = "null" ]; then
+            echo "::error::A API não retornou uma URL de download válida. Resposta: $DOWNLOAD_URL"
+            exit 1
+          fi
+          echo "Download URL: $DOWNLOAD_URL"
+          echo "download_url=$DOWNLOAD_URL" >> $GITHUB_OUTPUT
+
+      - name: Download application
+        id: download
+        run: |
+          DOWNLOAD_URL="${{ steps.get_url.outputs.download_url }}"
+
+          # Derive the filename from the URL (last path segment, without query params)
+          FILENAME=$(basename "${DOWNLOAD_URL%%\?*}")
+
+          # Fallback: if the URL has no identifiable filename segment, use a default name
+          if [ -z "$FILENAME" ] || [ "$FILENAME" = "." ]; then
+            FILENAME="calculadora.zip"
+            echo "::warning::Não foi possível extrair o nome do arquivo da URL; usando fallback '$FILENAME'"
+          fi
+
+          echo "Downloaded filename: $FILENAME"
+          echo "filename=$FILENAME" >> $GITHUB_OUTPUT
+
+          curl -L -o "$FILENAME" "$DOWNLOAD_URL"
+
+      - name: Unzip application and check for new version
+        id: check_version
+        run: |
+          FILENAME="${{ steps.download.outputs.filename }}"
+
+          # Unzip the outer archive — the inner zip is always named codigo-fonte-backend.zip
+          unzip "$FILENAME"
+          SOURCE_ZIP="./codigo-fonte-backend.zip"
+          echo "source_zip=$SOURCE_ZIP" >> $GITHUB_OUTPUT
+
+          NEW_HASH=$(md5sum "$SOURCE_ZIP" | awk '{print $1}')
+          OLD_HASH=""
+          if [ -f source.md5 ]; then
+            OLD_HASH=$(cat source.md5)
+          fi
+
+          if [ "$NEW_HASH" != "$OLD_HASH" ]; then
+            echo "New version found. Updating files."
+            echo "is_new_version=true" >> $GITHUB_ENV
+            echo "$NEW_HASH" > source.md5
+
+            # Capture the modification date of the inner zip (ISO-8601, seconds precision)
+            FILE_DATE=$(date -d "@$(stat -c '%Y' "$SOURCE_ZIP")" +'%Y-%m-%dT%H:%M:%S')
+            echo "codigo-fonte-backend.zip date: $FILE_DATE"
+            echo "source_zip_date=$FILE_DATE" >> $GITHUB_OUTPUT
+          else
+            echo "No new version found."
+            echo "is_new_version=false" >> $GITHUB_ENV
+          fi
+
+      - name: Resolve tag name
+        id: resolve_tag
+        if: env.is_new_version == 'true'
+        run: |
+          SOURCE_ZIP="${{ steps.check_version.outputs.source_zip }}"
+
+          # Extract only the Flyway migration folder to a temp location to read version
+          TMP_EXTRACT=$(mktemp -d)
+          unzip -q "$SOURCE_ZIP" "flyway/sql/manutencao/*" -d "$TMP_EXTRACT" 2>/dev/null || \
+            unzip -q "$SOURCE_ZIP" "*/flyway/sql/manutencao/*" -d "$TMP_EXTRACT" 2>/dev/null || true
+
+          # Find the highest migration file version (VNNNN_...)
+          MIGRATION_FILE=$(find "$TMP_EXTRACT" -type f -name "V[0-9][0-9][0-9][0-9]_*" | sort | tail -n 1)
+          echo "Latest migration file: $MIGRATION_FILE"
+
+          if [ -n "$MIGRATION_FILE" ]; then
+            # Extract NNNN from the filename (4-digit number after V)
+            BASENAME=$(basename "$MIGRATION_FILE")
+            VERSION_NUM=$(echo "$BASENAME" | grep -oP '(?<=V)\d{4}')
+            SHORT_TAG="v${VERSION_NUM}"
+          else
+            echo "::warning::No Flyway migration file found; falling back to date-based tag."
+            SHORT_TAG="v$(date +'%Y%m%d')"
+          fi
+
+          echo "Short tag candidate: $SHORT_TAG"
+
+          # Check whether the short tag already exists in the remote
+          git fetch --tags --quiet
+          if git rev-parse "refs/tags/$SHORT_TAG" >/dev/null 2>&1; then
+            echo "Tag $SHORT_TAG already exists. Building long tag."
+
+            # Use the modification date of codigo-fonte-backend.zip captured after extraction
+            ISO_DATE="${{ steps.check_version.outputs.source_zip_date }}"
+
+            if [ -z "$ISO_DATE" ]; then
+              # Fallback já gerando no formato seguro com hifens
+              SAFE_DATE=$(date +'%Y-%m-%dT%H-%M-%S')
+            else
+              # Sanitiza a data recebida substituindo ':' por '-' usando string replacement do bash
+              SAFE_DATE="${ISO_DATE//:/-}"
+            fi
+
+            TAG_NAME="${SHORT_TAG}-${SAFE_DATE}"
+          else
+            TAG_NAME="$SHORT_TAG"
+          fi
+
+          echo "Final tag name: $TAG_NAME"
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+
+      - name: Unzip and commit if new version
+        if: env.is_new_version == 'true'
+        run: |
+          SOURCE_ZIP="${{ steps.check_version.outputs.source_zip }}"
+          TAG_NAME="${{ steps.resolve_tag.outputs.tag_name }}"
+
+          # Clear the source folder completely before extracting
+          rm -rf source
+          mkdir source
+
+          unzip -q "$SOURCE_ZIP" -d source
+
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+          git add source source.md5
+          git commit -m "Update source calculadora version ${TAG_NAME}"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create tags (Version and Latest)
+        if: env.is_new_version == 'true'
+        run: |
+          TAG_NAME="${{ steps.resolve_tag.outputs.tag_name }}"
+
+          # Cria e envia a tag da versão no novo commit
+          git tag "$TAG_NAME"
+          git push origin "$TAG_NAME"
+
+          # Força a tag 'latest' a apontar para este novo commit
+          git tag -f latest
+          git push -f origin latest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Rename source zip for release
+        if: env.is_new_version == 'true'
+        run: |
+          SOURCE_ZIP="${{ steps.check_version.outputs.source_zip }}"
+          cp "$SOURCE_ZIP" source.zip
+
+      - name: Create versioned and latest Release
+        if: env.is_new_version == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Alterado de GITHUB_TOKEN para GH_TOKEN
+        run: |
+          TAG_NAME="${{ steps.resolve_tag.outputs.tag_name }}"
+
+          # Cria o release da versão específica usando o GitHub CLI
+          gh release create "$TAG_NAME" source.zip --title "Calculadora RTC $TAG_NAME" --notes "Código fonte atualizado da Calculadora RTC: $TAG_NAME"
+
+          # Deleta o release latest antigo (se existir) e recria apontando para o novo arquivo/tag
+          gh release delete latest -y || true
+          gh release create latest source.zip --title "Calculadora RTC (latest)" --notes "Última versão disponível"
