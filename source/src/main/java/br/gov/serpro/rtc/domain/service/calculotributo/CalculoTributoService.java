@@ -51,7 +51,7 @@ public class CalculoTributoService {
 
 	public TributosDomain calcular(OperacaoModel operacao) {
 		ItemOperacaoInput item = operacao.getItem();
-		LocalDate data = operacao.getData().toLocalDate();
+		LocalDate data = operacao.getData();
 		String ncm = item.getNcm();
 		String nbs = item.getNbs();
 

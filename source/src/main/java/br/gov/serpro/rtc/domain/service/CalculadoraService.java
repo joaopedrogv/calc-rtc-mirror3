@@ -56,6 +56,7 @@ public class CalculadoraService {
     private final SituacaoTributariaService situacaoTributariaService;
     
     public ROCDomain calcularTributos(OperacaoInput operacao) {
+        
         // Validar UF e Município
         if (operacao.getUf() == null) {
             operacao.setUf(municipioService.buscarUfPorMunicipio(operacao.getMunicipio()));
@@ -72,7 +73,7 @@ public class CalculadoraService {
     }
 
     private List<ObjetoDomain> getDetalhesImposto(OperacaoInput operacao) {
-        final LocalDate data = operacao.getDataHoraEmissao().toLocalDate();
+        final LocalDate data = operacao.getFatoGeradorAplicavel();
         
         // para checar se existe item duplicado
         Set<Integer> numerosSeen = new HashSet<>();
@@ -118,7 +119,7 @@ public class CalculadoraService {
 
         OperacaoModel operacaoModel = OperacaoModel
                 .builder()
-                .data(operacao.getDataHoraEmissao())
+                .data(data)
                 .codigoMunicipio(operacao.getMunicipio())
                 .codigoUf(codigoUf)
                 .ncm(item.getNcm())

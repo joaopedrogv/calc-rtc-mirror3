@@ -11,7 +11,7 @@
 	</parent>
 	<groupId>br.gov.serpro.rtc</groupId>
 	<artifactId>CalculadorTributo</artifactId>
-	<version>master</version>
+	<version>demanda-5110459-cofis-35690-release-9-5</version>
 	<name>api-regime-geral</name>
 	<description>Cálculo dos tributos da Reforma Tributária sobre o Consumo - Regime Geral</description>
 	<properties>

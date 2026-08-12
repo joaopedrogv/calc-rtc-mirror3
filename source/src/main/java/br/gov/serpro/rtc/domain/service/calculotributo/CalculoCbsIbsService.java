@@ -87,7 +87,7 @@ public class CalculoCbsIbsService {
         ItemOperacaoInput item,
         TratamentoClassificacao tratamentoClassificacao,
         BigDecimal impostoSeletivoCalculado,
-        Boolean temDesoneracao,
+        Boolean temTributacaoRegular,
         LocalDate data) {
 
         String cst = null;
@@ -98,7 +98,7 @@ public class CalculoCbsIbsService {
         ClassificacaoTributaria classificacaoTributaria = tratamentoClassificacao
                 .getClassificacaoTributaria();
 
-        if (temDesoneracao) {
+        if (temTributacaoRegular) {
             cst = item.getTributacaoRegular().getCst();
             cClassTrib = item.getTributacaoRegular().getCClassTrib();
         }
@@ -380,8 +380,8 @@ public class CalculoCbsIbsService {
         
         return CbsIbsOutput
                 .builder()
-                .grupoReducao(temDesoneracao ? null : obterGrupoReducao(resultadoAliquotaEfetiva, valorPercentualReducao, aliquotaDivididaPorCem))
-                .tributacaoRegular(temDesoneracao ?
+                .grupoReducao(!classificacaoTributaria.getSituacaoTributaria().getInGrupoReducao() || temTributacaoRegular ? null : obterGrupoReducao(classificacaoTributaria, resultadoAliquotaEfetiva, valorPercentualReducao, aliquotaDivididaPorCem))
+                .tributacaoRegular(temTributacaoRegular ?
                     obterGrupoDesoneracao(
                         cst,
                         cClassTrib,
@@ -393,8 +393,8 @@ public class CalculoCbsIbsService {
                     : null)
                 .grupoDiferimento(obterGrupoDiferimento(resultadoValorDiferimento, resultadoPercentualDiferimento))
                 .grupoMonofasia(obterGrupoMonofasia(classificacaoTributaria, quantidade, resultadoAliquota, resultadoAliquotaEfetiva, resultadoTributoCalculado, resultadoTributoDevido, variacaoPontoPercentual))
-                .tributoCalculado(temDesoneracao ? ZERO : resultadoTributoCalculado)
-                .tributoDevido(temDesoneracao ? ZERO : resultadoTributoDevido)
+                .tributoCalculado(temTributacaoRegular ? ZERO : resultadoTributoCalculado)
+                .tributoDevido(temTributacaoRegular ? ZERO : resultadoTributoDevido)
                 .aliquota(aliquotaDivididaPorCem && resultadoAliquota != null ? resultadoAliquota.movePointRight(2) : resultadoAliquota)
                 .baseCalculo(resultadoBaseCalculo)
                 .quantidade(quantidade)
@@ -454,8 +454,8 @@ public class CalculoCbsIbsService {
                 .setScale(8, HALF_UP);
     }
 
-    private static ReducaoAliquotaDomain obterGrupoReducao(BigDecimal aliquotaEfetiva, BigDecimal percentualReducao, boolean aliquotaDivididaPorCem) {
-        if (anyNull(percentualReducao, aliquotaEfetiva)) {
+    private static ReducaoAliquotaDomain obterGrupoReducao(ClassificacaoTributaria classificacaoTributaria, BigDecimal aliquotaEfetiva, BigDecimal percentualReducao, boolean aliquotaDivididaPorCem) {
+        if (anyNull(percentualReducao, aliquotaEfetiva) || !classificacaoTributaria.getSituacaoTributaria().getInGrupoReducao()) {
             return null;
         }
         return ReducaoAliquotaDomain
