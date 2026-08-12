@@ -20,8 +20,8 @@ jobs:
       - name: Get download URL from API
         id: get_url
         run: |
-          DOWNLOAD_URL=$(curl -s "https://calculadora-rtc-download.joaopedro-c3b.workers.dev" | jq -r '.downloadUrl')
-          # DOWNLOAD_URL=$(curl -s "https://piloto-cbs.tributos.gov.br/servico/calculadora-consumo/api/calculadora/download/url?platform=default" | jq -r '.downloadUrl')
+          # DOWNLOAD_URL=$(curl -s "https://calculadora-rtc-download.joaopedro-c3b.workers.dev" | jq -r '.downloadUrl')
+          DOWNLOAD_URL=$(curl -s "https://piloto-cbs.tributos.gov.br/servico/calculadora-consumo/api/calculadora/download/url?platform=default" | jq -r '.downloadUrl')
           if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" = "null" ]; then
             echo "::error::A API não retornou uma URL de download válida. Resposta: $DOWNLOAD_URL"
             exit 1
@@ -182,5 +182,5 @@ jobs:
           gh release create "$TAG_NAME" source.zip --title "Calculadora RTC $TAG_NAME" --notes "Código fonte atualizado da Calculadora RTC: $TAG_NAME"
 
           # Deleta o release latest antigo (se existir) e recria apontando para o novo arquivo/tag
-          gh release delete latest -y || true
-          gh release create latest source.zip --title "Calculadora RTC (latest)" --notes "Última versão disponível"
+          # gh release delete latest -y || true
+          # gh release create latest source.zip --title "Calculadora RTC (latest)" --notes "Última versão disponível"
