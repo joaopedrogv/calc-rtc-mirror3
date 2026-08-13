@@ -2,7 +2,12 @@ name: Download and Update Código Fonte da Calculadora da Reforma Tributária
 
 on:
   schedule:
-    - cron: '0 0 * * *' # Runs every day at midnight UTC
+    - cron: "17 0 * * *" # Runs every day at 0:17 AM UTC
+      timezone: "UTC"
+      
+    - cron: "17 3 * * *" # Runs every day at 3:17 AM UTC, certificate
+      timezone: "UTC"
+      
   workflow_dispatch: # Allows manual triggering of the workflow
 
 jobs:
